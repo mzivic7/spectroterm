@@ -7,11 +7,6 @@ import time
 import numpy as np
 import soundcard as sc
 
-MIN_FREQ = 30
-MAX_FREQ = 16000
-MIN_DB = -90
-MAX_DB = 0
-
 
 def log_band_volumes(data, sample_rate, num_bands, min_freq, max_freq, max_ref):
     """Get logarythmic volume in dB for specified number of bands, from sound sample, with interpolation between bands"""
@@ -80,7 +75,7 @@ def draw_log_y_axis(screen, bar_height, min_db, max_db, have_box=True):
     levels = list(range(int(min_db), int(max_db) + 1, 10))
     for db in levels:
         # get y coordinate
-        pos = int(np.interp(db, [min_db, max_db], [bar_height, 0]))
+        pos = int(np.interp(db, (min_db, max_db), (bar_height, 0)))
         label = str(db).rjust(3)
         if 0 <= pos < bar_height:
             screen.addstr(have_box + pos, have_box, label)
@@ -99,7 +94,7 @@ def get_color(y, bar_height, use_color):
     return curses.color_pair(3)   # red
 
 
-def draw_ui(screen, draw_box=True, draw_axes=True):
+def draw_ui(screen, draw_box, draw_axes, min_freq, max_freq, min_db, max_db):
     """Draw UI"""
     h, w = screen.getmaxyx()
     spectrum_hwyx = (
@@ -114,8 +109,8 @@ def draw_ui(screen, draw_box=True, draw_axes=True):
         screen.box()
         screen.addstr(0, 2, "Spectrum Analyzer")
     if draw_axes:
-        draw_log_y_axis(screen, bar_height, MIN_DB, MAX_DB, draw_box)
-        draw_log_x_axis(screen, num_bars, 4, h, MIN_FREQ, MAX_FREQ, draw_box)
+        draw_log_y_axis(screen, bar_height, min_db, max_db, draw_box)
+        draw_log_x_axis(screen, num_bars, 4, h, min_freq, max_freq, draw_box)
     return spectrum_win
 
 
@@ -142,6 +137,10 @@ def main(screen, args):
     sample_size = args.sample_size / 1000
     reference_max = args.reference_max
     peak_hold = args.peak_hold / 1000
+    min_freq = args.min_freq
+    max_freq = args.max_freq
+    min_db = args.min_db
+    max_db = args.max_db
 
     prev_bar_heights = None
     prev_update_time = time.perf_counter()
@@ -154,7 +153,7 @@ def main(screen, args):
     try:
         with loopback_mic.recorder(samplerate=sample_rate, channels=1, blocksize=int(sample_rate * sample_size)) as rec:
             h, w = screen.getmaxyx()
-            spectrum_win = draw_ui(screen, box, axes)
+            spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
             bar_height, num_bars = spectrum_win.getmaxyx()
             while True:
                 # handle input
@@ -163,15 +162,15 @@ def main(screen, args):
                     break
                 elif key == curses.KEY_RESIZE:
                     h, w = screen.getmaxyx()
-                    spectrum_win = draw_ui(screen, box, axes)
+                    spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
                     bar_height, num_bars = spectrum_win.getmaxyx()
 
                 # get and process data
                 data = rec.record(numframes=int(sample_rate * sample_size)).flatten()
-                volume_db = log_band_volumes(data, sample_rate, num_bars, MIN_FREQ, MAX_FREQ, reference_max)
+                volume_db = log_band_volumes(data, sample_rate, num_bars, min_freq, max_freq, reference_max)
 
                 # calculate heights on screen
-                raw_bar_heights = np.clip(np.round(np.interp(volume_db, [MIN_DB, MAX_DB], [0, bar_height])).astype(int), 0, bar_height)
+                raw_bar_heights = np.clip(np.round(np.interp(volume_db, (min_db, max_db), (0, bar_height))).astype(int), 0, bar_height)
 
                 # falling bars
                 now = time.perf_counter()
@@ -289,27 +288,48 @@ def argparser():
         help="character used to draw peaks",
     )
     parser.add_argument(
-        "-s",
+        "--min-freq",
+        type=int,
+        default=30,
+        help="minimum frequency on spectrum graph (x-axis)",
+    )
+    parser.add_argument(
+        "--max-freq",
+        type=int,
+        default=16000,
+        help="maximum frequency on spectrum graph (x-axis)",
+    )
+    parser.add_argument(
+        "--min-db",
+        type=int,
+        default=-90,
+        help="minimum loudness on spectrum graph (y-axis)",
+    )
+    parser.add_argument(
+        "--max-db",
+        type=int,
+        default=0,
+        help="maximum loudness on spectrum graph (y-axis)",
+    )
+
+    parser.add_argument(
         "--sample-rate",
         type=int,
         default=44100,
         help="loopback device sample rate",
     )
     parser.add_argument(
-        "-l",
         "--sample-size",
         type=int,
         default=50,
         help="sample size in ms, higher values will decrease fps",
     )
     parser.add_argument(
-        "-m",
         "--reference-max",
         type=int,
         default=3000,
         help="Value used to tune maximum loudness of sound",
     )
-
     parser.add_argument(
         "-v",
         "--version",
