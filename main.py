@@ -97,6 +97,7 @@ def get_color(y, bar_height, use_color):
 def draw_ui(screen, draw_box, draw_axes, min_freq, max_freq, min_db, max_db):
     """Draw UI"""
     h, w = screen.getmaxyx()
+    screen.clear()
     spectrum_hwyx = (
         h - draw_box - draw_axes,
         w - 2 * draw_box - 4 * draw_axes,
@@ -120,10 +121,6 @@ def main(screen, args):
     screen.nodelay(True)
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(0, -1, -1)
-    curses.init_pair(1, 46, -1)
-    curses.init_pair(2, 214, -1)
-    curses.init_pair(3, 196, -1)
 
     # load config
     color = args.color
@@ -141,6 +138,12 @@ def main(screen, args):
     max_freq = args.max_freq
     min_db = args.min_db
     max_db = args.max_db
+
+    curses.init_pair(0, -1, -1)
+    if color:
+        curses.init_pair(1, args.green, -1)
+        curses.init_pair(2, args.orange, -1)
+        curses.init_pair(3, args.red, -1)
 
     prev_bar_heights = None
     prev_update_time = time.perf_counter()
@@ -201,26 +204,28 @@ def main(screen, args):
                             peak_times[i] = now
 
                 # draw spectrum
-                for y in range(bar_height-1):
-                    line = []
-                    for bar in bar_heights:
-                        if y >= bar_height - bar:
-                            line.append(bar_character)
-                        else:
-                            line.append(" ")
-                    if peaks:
-                        for x, peak in enumerate(peak_heights):
-                            if y == bar_height - peak:
-                                line[x] = peak_character
-                    spectrum_win.insstr(y, 0, "".join(line), get_color(y, bar_height, color))
-                    spectrum_win.refresh()
+                try:
+                    for y in range(bar_height - box):
+                        line = []
+                        for bar in bar_heights:
+                            if y >= bar_height - bar:
+                                line.append(bar_character)
+                            else:
+                                line.append(" ")
+                        if peaks:
+                            for x, peak in enumerate(peak_heights):
+                                if y == bar_height - peak:
+                                    line[x] = peak_character
+                        spectrum_win.insstr(y, 0, "".join(line), get_color(y, bar_height, color))
+                        spectrum_win.refresh()
+                except curses.error:
+                    h, w = screen.getmaxyx()
+                    spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
+                    bar_height, num_bars = spectrum_win.getmaxyx()
 
 
     except Exception as e:
-        screen.clear()
-        screen.addstr(0, 0, f"Error: {e}")
-        screen.refresh()
-        time.sleep(2)
+        sys.exit(f"Error: {e}")
 
 
 def sigint_handler(signum, frame):   # noqa
@@ -311,7 +316,24 @@ def argparser():
         default=0,
         help="maximum loudness on spectrum graph (y-axis)",
     )
-
+    parser.add_argument(
+        "--green",
+        type=int,
+        default=46,
+        help="8bit ANSI color code for green part of bar",
+    )
+    parser.add_argument(
+        "--orange",
+        type=int,
+        default=214,
+        help="8bit ANSI color code for orange part of bar",
+    )
+    parser.add_argument(
+        "--red",
+        type=int,
+        default=196,
+        help="8bit ANSI color code for red part of bar",
+    )
     parser.add_argument(
         "--sample-rate",
         type=int,
