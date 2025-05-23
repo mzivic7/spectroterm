@@ -5,6 +5,9 @@ name = "pypi"
 
 [packages]
 soundcard = "*"
+nuitka = "*"
+numpy = "*"
+pyinstaller = "*"
 
 [dev-packages]
 

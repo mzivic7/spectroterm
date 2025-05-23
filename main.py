@@ -8,15 +8,13 @@ import numpy as np
 import soundcard as sc
 
 
-def log_band_volumes(data, sample_rate, num_bands, min_freq, max_freq, max_ref):
+def log_band_volumes(data, freqs, num_bands, band_edges, max_ref):
     """Get logarythmic volume in dB for specified number of bands, from sound sample, with interpolation between bands"""
     # get magnitude from fft
     raw_magnitude = np.abs(np.fft.rfft(data))
-    freqs = np.fft.rfftfreq(len(data), 1 / sample_rate)
 
     # split into logarithmic bands
-    band_edges = np.logspace(np.log10(min_freq), np.log10(max_freq), num_bands + 1)
-    magnitue = np.zeros(num_bands)
+    magnitude = np.zeros(num_bands)
     for i in range(num_bands):
         left = band_edges[i]
         right = band_edges[i+1]
@@ -35,7 +33,7 @@ def log_band_volumes(data, sample_rate, num_bands, min_freq, max_freq, max_ref):
                 bins.append(right_bin - 1)
             if right_bin < len(freqs) and right_bin != left_bin:
                 bins.append(right_bin)
-            bins = list(set(bins))
+            bins = np.array(list(set(bins)))
             weights = []
             for b in bins:
                 center = freqs[b]
@@ -44,13 +42,18 @@ def log_band_volumes(data, sample_rate, num_bands, min_freq, max_freq, max_ref):
                 weights.append(1/d)
             weights = np.array(weights)
             weights /= np.sum(weights)
-            magnitue[i] = np.sqrt(np.sum((raw_magnitude[bins]**2) * weights))   # weighted RMS
+            magnitude[i] = np.sqrt(np.sum((raw_magnitude[bins]**2) * weights))   # weighted RMS
         else:
-            magnitue[i] = np.sqrt(np.mean(raw_magnitude[idx]**2))   # RMS
+            magnitude[i] = np.sqrt(np.mean(raw_magnitude[idx]**2))   # RMS
 
-    # magnitue to negative dB
-    db = 20 * np.log10(magnitue / max_ref + 1e-12)    # add small value to avoid log(0)
+    # magnitude to negative dB
+    db = 20 * np.log10(magnitude / max_ref + 1e-12)    # add small value to avoid log(0)
     return np.maximum(db, -90)
+
+
+def db_to_height(db, min_db, max_db, bar_height):
+    """Calculate height of bars from sound volume"""
+    return np.clip(np.round(np.interp(db, (min_db, max_db), (0, bar_height))).astype(np.int32), 0, bar_height)
 
 
 def draw_log_x_axis(screen, num_bars, x, h, min_freq, max_freq, have_box=True):
@@ -148,6 +151,8 @@ def main(screen, args):
     prev_bar_heights = None
     prev_update_time = time.perf_counter()
     peak_heights = []
+    numframes = int(44100 * 50/1000)
+    freqs = np.fft.rfftfreq(numframes, 1 / sample_rate)
 
     # get loopback device
     default_speaker = sc.default_speaker()
@@ -158,6 +163,8 @@ def main(screen, args):
             h, w = screen.getmaxyx()
             spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
             bar_height, num_bars = spectrum_win.getmaxyx()
+            band_edges = np.logspace(np.log10(min_freq), np.log10(max_freq), num_bars + 1)
+            silence = np.repeat(-90.0, num_bars)
             while True:
                 # handle input
                 key = screen.getch()
@@ -167,13 +174,18 @@ def main(screen, args):
                     h, w = screen.getmaxyx()
                     spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
                     bar_height, num_bars = spectrum_win.getmaxyx()
+                    band_edges = np.logspace(np.log10(min_freq), np.log10(max_freq), num_bars + 1)
+                    silence = np.repeat(-90, num_bars)
 
                 # get and process data
-                data = rec.record(numframes=int(sample_rate * sample_size)).flatten()
-                volume_db = log_band_volumes(data, sample_rate, num_bars, min_freq, max_freq, reference_max)
-
+                data = rec.record(numframes=numframes).flatten()
+                # skip calculations if all data is zero
+                if data.any():
+                    db = log_band_volumes(data, freqs, num_bars, band_edges, reference_max)
+                else:
+                    db = silence
                 # calculate heights on screen
-                raw_bar_heights = np.clip(np.round(np.interp(volume_db, (min_db, max_db), (0, bar_height))).astype(int), 0, bar_height)
+                raw_bar_heights = db_to_height(db, min_db, max_db, bar_height)
 
                 # falling bars
                 now = time.perf_counter()
@@ -222,7 +234,8 @@ def main(screen, args):
                     h, w = screen.getmaxyx()
                     spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
                     bar_height, num_bars = spectrum_win.getmaxyx()
-
+                    band_edges = np.logspace(np.log10(min_freq), np.log10(max_freq), num_bars + 1)
+                    silence = np.repeat(-90, num_bars)
 
     except Exception as e:
         sys.exit(f"Error: {e}")
@@ -237,7 +250,7 @@ def argparser():
     """Setup argument parser for CLI"""
     parser = argparse.ArgumentParser(
         prog="spectroterm",
-        description="Curses based spectrometer for currently playing audio",
+        description="Curses based terminal spectrum analyzer for currently playing audio",
     )
     parser._positionals.title = "arguments"
     parser.add_argument(
@@ -287,7 +300,7 @@ def argparser():
     )
     parser.add_argument(
         "-k",
-        "--peak_character",
+        "--peak-character",
         type=str,
         default="_",
         help="character used to draw peaks",
