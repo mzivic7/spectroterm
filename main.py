@@ -1,11 +1,74 @@
 import argparse
 import curses
+import shutil
 import signal
+import subprocess
 import sys
 import time
 
 import numpy as np
 import soundcard as sc
+
+pw_loopback = None
+
+
+def connect_pipewire(output_node_name, target_node_name=None, only_get_name=False):
+    """Connect to output with custom loopback device. This prevents headsets from switching to 'handsfree' mode"""
+    global pw_loopback
+    # check if pipewire is running
+    if "pipewire" not in subprocess.check_output(["ps", "-A"], text=True):
+        sys.exit("Pipewire process not found")
+
+    # check if pipewire commands are available
+    if not (shutil.which("pw-link") or shutil.which("pw-loopback")):
+        sys.exit("pw-link and pw-loopback commands not found")
+
+    if target_node_name and ":" in target_node_name:
+        target_node_name = target_node_name.split(":")[0]
+
+    # find node that output is connected to
+    command = ["pw-link", "--links"]
+    proc = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    links = proc.communicate()[0].decode().split("\n")
+    for num, link in enumerate(links):
+        if target_node_name and target_node_name in link:
+            last_node = target_node_name
+            break
+        if output_node_name in links[num-1] and "|<-" in link:
+            last_node = link.split("|<-")[-1].split(":")[0].strip()
+            break
+    else:
+        sys.exit("Could not find active pipewire links. Make sure audio is playing when starting spectroterm or specify custom node name.")
+
+    if only_get_name:
+        return last_node
+
+    # start loopback node
+    command = [
+        "pw-loopback",
+        "--capture-props", 'node.autoconnect=false node.name=spectroterm-capture node.description="Spectroterm Capture"',
+        "--playback-props", 'node.autoconnect=false media.class=Audio/Source node.name=spectroterm node.description="Spectroterm"',
+    ]
+    pw_loopback = subprocess.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(0.1)   # delay for pw-loopback to create nodes
+
+    # link loopback node
+    command = ["pw-link", last_node, "spectroterm-capture"]
+    proc = subprocess.Popen(
+        command,
+        # stdout=subprocess.DEVNULL,
+        # stderr=subprocess.DEVNULL,
+    )
+    return "spectroterm"
+
 
 
 def log_band_volumes(data, freqs, num_bands, band_edges, max_ref):
@@ -141,6 +204,8 @@ def main(screen, args):
     max_freq = args.max_freq
     min_db = args.min_db
     max_db = args.max_db
+    pipewire_fix = args.pipewire_fix
+    pipewire_node_id = args.pipewire_node_id
 
     curses.init_pair(0, -1, -1)
     if color:
@@ -155,8 +220,13 @@ def main(screen, args):
     freqs = np.fft.rfftfreq(numframes, 1 / sample_rate)
 
     # get loopback device
-    default_speaker = sc.default_speaker()
-    loopback_mic = sc.get_microphone(default_speaker.name, include_loopback=True)
+    if pipewire_fix:
+        mic_id = connect_pipewire(sc.default_speaker().id, pipewire_node_id)
+        if not mic_id:
+            mic_id = sc.default_speaker().name
+    else:
+        mic_id = sc.default_speaker().name
+    loopback_mic = sc.get_microphone(mic_id, include_loopback=True)
 
     try:
         with loopback_mic.recorder(samplerate=sample_rate, channels=1, blocksize=int(sample_rate * sample_size)) as rec:
@@ -243,7 +313,10 @@ def main(screen, args):
 
 def sigint_handler(signum, frame):   # noqa
     """Handle Ctrl-C event"""
-    sys.exit()
+    if pw_loopback:
+        pw_loopback.send_signal(signal.SIGINT)
+        pw_loopback.wait()
+    sys.exit(0)
 
 
 def argparser():
@@ -348,6 +421,22 @@ def argparser():
         help="8bit ANSI color code for red part of bar",
     )
     parser.add_argument(
+        "--pipewire-fix",
+        action="store_true",
+        help="pipewire only, connect to output with custom loopback device. This prevents headsets from switching to 'handsfree' mode, which is mono and has lower audio quality. Usually sound must be playing in order for this to work",
+    )
+    parser.add_argument(
+        "--print-pipewire-node",
+        action="store_true",
+        help="will print currently used pipewire node to monitor sound, then exit",
+    )
+    parser.add_argument(
+        "--pipewire-node-id",
+        type=str,
+        default=None,
+        help="ID of custom pipewire node to use. Set this to preferred node if spectroterm is launched before any soud is reproduced. Effective only whith --pipewire-fix. Use 'pw-list -o' to get list of available nodes, or use --print-pipewire-node",
+    )
+    parser.add_argument(
         "--sample-rate",
         type=int,
         default=44100,
@@ -369,7 +458,7 @@ def argparser():
         "-v",
         "--version",
         action="version",
-        version="%(prog)s 0.1.0",
+        version="%(prog)s 0.2.0",
     )
     return parser.parse_args()
 
@@ -377,4 +466,7 @@ def argparser():
 if __name__ == "__main__":
     args = argparser()
     signal.signal(signal.SIGINT, sigint_handler)
+    if args.print_pipewire_node:
+        print(connect_pipewire(sc.default_speaker().id, only_get_name=True))
+        sys.exit()
     curses.wrapper(main, args)

@@ -14,6 +14,7 @@ Curses based terminal spectrum analyzer for currently playing audio.
 - Custom characters
 - Custom fall speed and peak hold
 - Automatic resizing  
+- Fix for PipeWire switching headset to 'handsfree'
 
 
 ## Usage
@@ -21,10 +22,11 @@ Curses based terminal spectrum analyzer for currently playing audio.
 usage: spectroterm [-h] [-a] [-b] [-c] [-p] [-f FALL_SPEED] [-o PEAK_HOLD] [-r BAR_CHARACTER]
                    [-k PEAK_CHARACTER] [--min-freq MIN_FREQ] [--max-freq MAX_FREQ]
                    [--min-db MIN_DB] [--max-db MAX_DB] [--green GREEN] [--orange ORANGE]
-                   [--red RED] [--sample-rate SAMPLE_RATE] [--sample-size SAMPLE_SIZE]
-                   [--reference-max REFERENCE_MAX] [-v]
+                   [--red RED] [--pipewire-fix] [--print-used-pipewire-node]
+                   [--pipewire-node-id PIPEWIRE_NODE_ID] [--sample-rate SAMPLE_RATE]
+                   [--sample-size SAMPLE_SIZE] [--reference-max REFERENCE_MAX] [-v]
 
-Curses based terminal spectrometer for currently playing audio
+Curses based terminal spectrum analyzer for currently playing audio
 
 options:
   -h, --help            show this help message and exit
@@ -47,6 +49,17 @@ options:
   --green GREEN         8bit ANSI color code for green part of bar
   --orange ORANGE       8bit ANSI color code for orange part of bar
   --red RED             8bit ANSI color code for red part of bar
+  --pipewire-fix        pipewire only, connect to output with custom loopback device. This
+                        prevents headsets from switching to 'handsfree' mode, which is mono and
+                        has lower audio quality. Usually sound must be playing in order for this
+                        to work
+  --print-pipewire-node
+                        will print currently used pipewire node to monitor sound, then exit
+  --pipewire-node-id PIPEWIRE_NODE_ID
+                        ID of custom pipewire node to use. Set this to preferred node if
+                        spectroterm is launched before any soud is reproduced. Effective only
+                        whith --pipewire-fix. Use 'pw-list -o' to get list of available nodes, or
+                        use --print-pipewire-node
   --sample-rate SAMPLE_RATE
                         loopback device sample rate
   --sample-size SAMPLE_SIZE
