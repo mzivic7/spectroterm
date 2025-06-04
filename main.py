@@ -5,6 +5,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections import deque
 
 import numpy as np
 import soundcard as sc
@@ -155,7 +156,7 @@ def get_color(y, bar_height, use_color):
     relative = (bar_height - y) / bar_height
     if relative < 0.5:
         return curses.color_pair(1)   # green
-    if relative < 0.75:
+    if relative < 0.8:
         return curses.color_pair(2)   # yellow
     return curses.color_pair(3)   # red
 
@@ -206,6 +207,7 @@ def main(screen, args):
     max_db = args.max_db
     pipewire_fix = args.pipewire_fix
     pipewire_node_id = args.pipewire_node_id
+    delay = args.delay
 
     curses.init_pair(0, -1, -1)
     if color:
@@ -213,10 +215,16 @@ def main(screen, args):
         curses.init_pair(2, args.orange, -1)
         curses.init_pair(3, args.red, -1)
 
+    # detect bluetooth device
+    if args.bt_delay:
+        if "blue" in sc.default_speaker().id:
+            delay = args.bt_delay
+
     prev_bar_heights = None
     prev_update_time = time.perf_counter()
     peak_heights = []
-    numframes = int(44100 * 50/1000)
+    numframes = int(sample_rate * sample_size)
+    delay_frames = int(sample_rate * delay / 1000)
     freqs = np.fft.rfftfreq(numframes, 1 / sample_rate)
 
     # get loopback device
@@ -229,12 +237,17 @@ def main(screen, args):
     loopback_mic = sc.get_microphone(mic_id, include_loopback=True)
 
     try:
-        with loopback_mic.recorder(samplerate=sample_rate, channels=1, blocksize=int(sample_rate * sample_size)) as rec:
+        with loopback_mic.recorder(samplerate=sample_rate, channels=1, blocksize=numframes) as rec:
             h, w = screen.getmaxyx()
             spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
             bar_height, num_bars = spectrum_win.getmaxyx()
             band_edges = np.logspace(np.log10(min_freq), np.log10(max_freq), num_bars + 1)
             silence = np.repeat(-90.0, num_bars)
+
+            if delay:
+                buffer = deque()
+                buffer.extend(np.array_split(np.zeros((delay_frames)), delay_frames // numframes))
+
             while True:
                 # handle input
                 key = screen.getch()
@@ -248,7 +261,11 @@ def main(screen, args):
                     silence = np.repeat(-90, num_bars)
 
                 # get and process data
-                data = rec.record(numframes=numframes).flatten()
+                if delay:
+                    buffer.append(rec.record(numframes=numframes).flatten())
+                    data = buffer.popleft()
+                else:
+                    data = rec.record(numframes=numframes).flatten()
                 # skip calculations if all data is zero
                 if data.any():
                     db = log_band_volumes(data, freqs, num_bars, band_edges, reference_max)
@@ -308,6 +325,9 @@ def main(screen, args):
                     silence = np.repeat(-90, num_bars)
 
     except Exception as e:
+        if pw_loopback:
+            pw_loopback.send_signal(signal.SIGINT)
+            pw_loopback.wait()
         sys.exit(f"Error: {e}")
 
 
@@ -421,20 +441,16 @@ def argparser():
         help="8bit ANSI color code for red part of bar",
     )
     parser.add_argument(
-        "--pipewire-fix",
-        action="store_true",
-        help="pipewire only, connect to output with custom loopback device. This prevents headsets from switching to 'handsfree' mode, which is mono and has lower audio quality. Usually sound must be playing in order for this to work",
+        "--delay",
+        type=int,
+        default=0,
+        help="spectrogram delay for a better sync with sound.",
     )
     parser.add_argument(
-        "--print-pipewire-node",
-        action="store_true",
-        help="will print currently used pipewire node to monitor sound, then exit",
-    )
-    parser.add_argument(
-        "--pipewire-node-id",
-        type=str,
-        default=None,
-        help="ID of custom pipewire node to use. Set this to preferred node if spectroterm is launched before any soud is reproduced. Effective only whith --pipewire-fix. Use 'pw-list -o' to get list of available nodes, or use --print-pipewire-node",
+        "--bt-delay",
+        type=int,
+        default=0,
+        help="spectrogram delay for auto-detected bluetooth devices.",
     )
     parser.add_argument(
         "--sample-rate",
@@ -452,13 +468,29 @@ def argparser():
         "--reference-max",
         type=int,
         default=3000,
-        help="Value used to tune maximum loudness of sound",
+        help="value used to tune maximum loudness of sound",
+    )
+    parser.add_argument(
+        "--pipewire-fix",
+        action="store_true",
+        help="pipewire only, connect to output with custom loopback device. This prevents headsets from switching to 'handsfree' mode, which is mono and has lower audio quality. Usually sound must be playing in order for this to work",
+    )
+    parser.add_argument(
+        "--print-pipewire-node",
+        action="store_true",
+        help="will print currently used pipewire node to monitor sound, then exit",
+    )
+    parser.add_argument(
+        "--pipewire-node-id",
+        type=str,
+        default=None,
+        help="ID of custom pipewire node to use. Set this to preferred node if spectroterm is launched before any soud is reproduced. Effective only whith --pipewire-fix. Use 'pw-list -o' to get list of available nodes, or use --print-pipewire-node",
     )
     parser.add_argument(
         "-v",
         "--version",
         action="version",
-        version="%(prog)s 0.2.0",
+        version="%(prog)s 0.3.0",
     )
     return parser.parse_args()
 
