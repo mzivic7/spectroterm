@@ -77,7 +77,7 @@ Colors are provided as integer and they are [8bit ANSI color codes](https://gist
 
 
 ## Installing
-- From AUR: `yay -S cmus-auto-lyrics`
+- From AUR: `yay -S spectroterm`
 - Build, then copy built executable to system:  
 `sudo cp dist/spectroterm /usr/local/sbin/`
 
