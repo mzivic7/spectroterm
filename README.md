@@ -59,17 +59,15 @@ options:
                         value used to tune maximum loudness of sound
   --pipewire-fix        pipewire only, connect to output with custom loopback device. This
                         prevents headsets from switching to 'handsfree' mode, which is mono and
-                        has lower audio quality. Usually sound must be playing in order for this
-                        to work
+                        has lower audio quality. Sometimes this wont work unless sound is playing
   --print-pipewire-node
-                        will print currently used pipewire node to monitor sound, then exit
+                        will print all currently used pipewire nodes to monitor sound, then exit
   --pipewire-node-id PIPEWIRE_NODE_ID
                         ID of custom pipewire node to use. Set this to preferred node if
                         spectroterm is launched before any soud is reproduced. Effective only
                         whith --pipewire-fix. Use 'pw-list -o' to get list of available nodes, or
                         use --print-pipewire-node
   -v, --version         show program's version number and exit
-
 ```
 
 ### Colors

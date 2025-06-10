@@ -35,18 +35,20 @@ def connect_pipewire(output_node_name, target_node_name=None, only_get_name=Fals
         stderr=subprocess.DEVNULL,
     )
     links = proc.communicate()[0].decode().split("\n")
+    last_nodes = []
     for num, link in enumerate(links):
         if target_node_name and target_node_name in link:
-            last_node = target_node_name
+            last_nodes.append(target_node_name)
             break
-        if output_node_name in links[num-1] and "|<-" in link:
-            last_node = link.split("|<-")[-1].split(":")[0].strip()
-            break
-    else:
+        if not target_node_name and f"|-> {output_node_name}" in link:
+            node_name = links[num-1].split(":")[0].strip()
+            if node_name not in last_nodes:
+                last_nodes.append(node_name)
+    if not last_nodes:
         sys.exit("Could not find active pipewire links. Make sure audio is playing when starting spectroterm or specify custom node name.")
 
     if only_get_name:
-        return last_node
+        return last_nodes
 
     # start loopback node
     command = [
@@ -62,12 +64,13 @@ def connect_pipewire(output_node_name, target_node_name=None, only_get_name=Fals
     time.sleep(0.1)   # delay for pw-loopback to create nodes
 
     # link loopback node
-    command = ["pw-link", last_node, "spectroterm-capture"]
-    proc = subprocess.Popen(
-        command,
-        # stdout=subprocess.DEVNULL,
-        # stderr=subprocess.DEVNULL,
-    )
+    for node in last_nodes:
+        proc = subprocess.Popen(
+            ["pw-link", node, "spectroterm-capture"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     return "spectroterm"
 
 
@@ -473,12 +476,12 @@ def argparser():
     parser.add_argument(
         "--pipewire-fix",
         action="store_true",
-        help="pipewire only, connect to output with custom loopback device. This prevents headsets from switching to 'handsfree' mode, which is mono and has lower audio quality. Usually sound must be playing in order for this to work",
+        help="pipewire only, connect to output with custom loopback device. This prevents headsets from switching to 'handsfree' mode, which is mono and has lower audio quality. Sometimes this wont work unless sound is playing",
     )
     parser.add_argument(
         "--print-pipewire-node",
         action="store_true",
-        help="will print currently used pipewire node to monitor sound, then exit",
+        help="will print all currently used pipewire nodes to monitor sound, then exit",
     )
     parser.add_argument(
         "--pipewire-node-id",
@@ -490,7 +493,7 @@ def argparser():
         "-v",
         "--version",
         action="version",
-        version="%(prog)s 0.3.0",
+        version="%(prog)s 0.3.1",
     )
     return parser.parse_args()
 
@@ -499,6 +502,8 @@ if __name__ == "__main__":
     args = argparser()
     signal.signal(signal.SIGINT, sigint_handler)
     if args.print_pipewire_node:
-        print(connect_pipewire(sc.default_speaker().id, only_get_name=True))
+        last_nodes = connect_pipewire(sc.default_speaker().id, only_get_name=True)
+        for node in last_nodes:
+            print(node)
         sys.exit()
     curses.wrapper(main, args)
