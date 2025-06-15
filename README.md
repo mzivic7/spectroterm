@@ -89,7 +89,9 @@ Colors are provided as integer and they are [8bit ANSI color codes](https://gist
     - pyinstaller - short compile time, executable uses more CPU  
     `pipenv run python -m PyInstaller --noconfirm --onefile --windowed --clean --name "spectroterm" "main.py"`
     - nuitka - long compile time, smaller executable size, executable uses slightly less CPU  
-    `pipenv run python -m nuitka --onefile --include-package-data=soundcard --output-dir=dist --output-filename="spectroterm" main.py`
+    `pipenv run python -m nuitka --onefile --include-package-data=soundcard --output-dir=dist --remove-output --output-filename="spectroterm" main.py`  
+    - nuitka with clang (must be installed) - more performance and less CPU usage due to less accurate math  
+    `CCFLAGS="-ffast-math" pipenv run python -m nuitka --clang --lto=yes --onefile --include-package-data=soundcard --output-dir=dist --remove-output --output-filename="spectroterm" main.py`  
 
 
 ## Screenshots
