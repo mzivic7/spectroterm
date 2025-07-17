@@ -9,18 +9,17 @@ jobs:
   build:
     strategy:
       matrix:
-        # os: [ubuntu-latest, windows-latest, macos-15]
-        os: [macos-15]
+        os: [ubuntu-latest, windows-latest, macos-15]
         clang-version: [20.1.4]
         include:
-          # - os: ubuntu-latest
-          #   platform: linux
-          #   python-version: "3.13"
-          #   nuitka: true
-          # - os: windows-latest
-          #   platform: windows
-          #   python-version: "3.12"   # https://github.com/Nuitka/Nuitka/issues/3234
-          #   nuitka: true
+          - os: ubuntu-latest
+            platform: linux
+            python-version: "3.13"
+            nuitka: true
+          - os: windows-latest
+            platform: windows
+            python-version: "3.12"   # https://github.com/Nuitka/Nuitka/issues/3234
+            nuitka: true
           - os: macos-15
             platform: macos
             python-version: "3.13"
