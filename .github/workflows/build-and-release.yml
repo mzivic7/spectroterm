@@ -29,32 +29,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      ## uncomment to enable caching with artifacts
-      # - name: Set CCACHE_DIR environment variable
-      #   if: ${{ matrix.nuitka }}
-      #   shell: bash
-      #   run: |
-      #     if [[ "${{ runner.os }}" == "Windows" ]]; then
-      #       echo "CCACHE_DIR=${LOCALAPPDATA}\\clcache" >> $GITHUB_ENV
-      #     elif [[ "${{ runner.os }}" == "macOS" ]]; then
-      #       echo "CCACHE_DIR=$HOME/Library/Caches/ccache" >> $GITHUB_ENV
-      #     else
-      #       echo "CCACHE_DIR=$HOME/.cache/ccache" >> $GITHUB_ENV
-      #     fi
-
-      ## uncomment to enable caching with artifacts
-      # - name: Download ccache artifact from previous run
-      #   uses: dawidd6/action-download-artifact@v9
-      #   if: ${{ matrix.nuitka }}
-      #   with:
-      #     github_token: ${{ secrets.GITHUB_TOKEN }}
-      #     workflow: build-and-release.yml
-      #     name: ccache-${{ runner.os }}
-      #     workflow_conclusion: success
-      #     path: ${{ env.CCACHE_DIR }}
-      #     if_no_artifact_found: warn
-      #   continue-on-error: true
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -68,17 +42,11 @@ jobs:
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt update --fix-missing && sudo apt install -y patchelf ccache
+        run: sudo apt update --fix-missing && sudo apt install -y patchelf lld
 
-      - name: Install Windows system dependencies
-        if: matrix.os == 'windows-latest'
-        run: choco install ccache -y
-
-      - name: Install macOS system dependencies
+      - name: Set SDKROOT on macOS
         if: matrix.os == 'macos-15'
-        run: |
-          brew install ccache
-          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+        run: echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -108,14 +76,6 @@ jobs:
           name: dist-${{ matrix.os }}
           path: |
             ./dist/*
-
-      ## uncomment to enable caching with artifacts
-      # - name: Upload ccache artifact
-      #   uses: actions/upload-artifact@v4
-      #   if: ${{ matrix.nuitka }}
-      #   with:
-      #     name: ccache-${{ matrix.os }}
-      #     path: ${{ env.CCACHE_DIR }}
 
       - name: Delete previous workflow runs
         uses: Mattraks/delete-workflow-runs@v2

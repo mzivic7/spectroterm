@@ -90,13 +90,18 @@ def build_cython(clang):
         "-fomit-frame-pointer",
         "-funroll-loops",
     ]
+    extra_link_args = ["-flto"]
+
+    if shutil.which("lld"):
+        extra_compile_args.append("-fuse-ld=lld")
+        extra_link_args.append("-fuse-ld=lld")
 
     extensions = [
         Extension(
             "spectrum_cython",
             ["spectrum_cython.pyx"],
             extra_compile_args=extra_compile_args,
-            extra_link_args=["-flto"],
+            extra_link_args=extra_link_args,
             include_dirs=[np.get_include()],
         ),
     ]
