@@ -194,15 +194,21 @@ def parser():
         action="store_true",
         help="build into directory instead single executable",
     )
+    parser.add_argument(
+        "--nocython",
+        action="store_true",
+        help="build without compiling cython code",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parser()
-    try:
-        build_cython(args.clang)
-    except Exception:
-        pass
+    if not args.nocython:
+        try:
+            build_cython(args.clang)
+        except Exception:
+            pass
     if args.nuitka:
         build_with_nuitka(args.onedir, args.clang)
         sys.exit()

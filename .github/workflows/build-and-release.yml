@@ -19,7 +19,7 @@ jobs:
           - os: windows-latest
             platform: windows
             python-version: "3.12"   # https://github.com/Nuitka/Nuitka/issues/3234
-            nuitka: true
+            nuitka: false   # AttributeError: 'ListAction' object has no attribute 'replace'
           - os: macos-15
             platform: macos
             python-version: "3.13"
@@ -70,12 +70,30 @@ jobs:
         if: matrix.os == 'macos-15' || matrix.os == 'ubuntu-latest'
         run: chmod +x ./dist/spectroterm || true
 
+      - name: Archive files
+        shell: bash
+        run: |
+          version=${GITHUB_REF#refs/tags/}
+          extra="README.md LICENSE"
+          cd dist
+          cp ../{README.md,LICENSE,commands.md,configuration.md} .
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            tar -czf "spectroterm-$version-${{ matrix.platform }}.tar.gz" spectroterm $extra
+          elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            7z a "spectroterm-$version-${{ matrix.platform }}.zip" spectroterm.exe $extra
+          else
+            zip "spectroterm-$version-${{ matrix.platform }}.zip" spectroterm $extra
+          fi
+          cd ..
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.os }}
           path: |
-            ./dist/*
+            ./dist/*.zip
+            ./dist/*.tar.gz
+          compression-level: 0
 
       - name: Delete previous workflow runs
         uses: Mattraks/delete-workflow-runs@v2
