@@ -9,17 +9,18 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-15]
+        # os: [ubuntu-latest, windows-latest, macos-15]
+        os: [macos-15]
         clang-version: [20.1.4]
         include:
-          - os: ubuntu-latest
-            platform: linux
-            python-version: "3.13"
-            nuitka: true
-          - os: windows-latest
-            platform: windows
-            python-version: "3.12"   # https://github.com/Nuitka/Nuitka/issues/3234
-            nuitka: true
+          # - os: ubuntu-latest
+          #   platform: linux
+          #   python-version: "3.13"
+          #   nuitka: true
+          # - os: windows-latest
+          #   platform: windows
+          #   python-version: "3.12"   # https://github.com/Nuitka/Nuitka/issues/3234
+          #   nuitka: true
           - os: macos-15
             platform: macos
             python-version: "3.13"
@@ -75,9 +76,9 @@ jobs:
         run: choco install ccache -y
 
       - name: Install macOS system dependencies
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-15'
         run: |
-          brew install ccache libmagic
+          brew install ccache
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
 
       - name: Install uv
@@ -97,11 +98,9 @@ jobs:
             else
               uv run build.py
             fi
-        env:
-            SDKROOT: ${{ env.SDKROOT }}
 
       - name: Make binaries executable
-        if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'macos-15' || matrix.os == 'ubuntu-latest'
         run: chmod +x ./dist/spectroterm || true
 
       - name: Upload build artifact
