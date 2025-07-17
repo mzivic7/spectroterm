@@ -75,23 +75,28 @@ Colors are provided as integer and they are [8bit ANSI color codes](https://gist
 
 
 ## Installing
+- Pre-built binaries are available in releases
 - From AUR: `yay -S spectroterm`
 - Build, then copy built executable to system:  
 `sudo cp dist/spectroterm /usr/local/sbin/`
 
 
 ## Building
-1. Clone this repository: `git clone https://github.com/mzivic7/spectroterm`
-2. Install [pipenv](https://docs.pipenv.org/install/)
+1. Clone this repository
+2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 3. `cd spectroterm`
-4. Install requirements: `pipenv install`
-5. build:
-    - pyinstaller - short compile time, executable uses more CPU  
-    `pipenv run python -m PyInstaller --noconfirm --onefile --windowed --clean --name "spectroterm" "main.py"`
-    - nuitka - long compile time, smaller executable size, executable uses slightly less CPU  
-    `pipenv run python -m nuitka --onefile --include-package-data=soundcard --output-dir=dist --remove-output --output-filename="spectroterm" main.py`  
-    - nuitka with clang (must be installed) - more performance and less CPU usage due to less accurate math  
-    `CCFLAGS="-ffast-math" pipenv run python -m nuitka --clang --lto=yes --onefile --include-package-data=soundcard --output-dir=dist --remove-output --output-filename="spectroterm" main.py`  
+4. run build script: `uv run build.py`  
+5. To build with Nuitka, add `--nuitka` flag. More optimized, smaller executable, long compile time. See [Nuitka](#nuitka) for more info.  
+
+
+## Nuitka
+To enable building with Nuitka, add `--nuitka` flag (takes a long time).  
+Nuitka built binaries are more optimized.
+Optionally, add `--clang` flag to tell nuitka to compile using llvm, which might run even faster.  
+Nuitka requirements:
+- on Linux: GCC or clang and `patchelf` package
+- on Windows: [Visual Studio 2022](https://www.visualstudio.com/en-us/downloads/download-visual-studio-vs.aspx) or mingw (will be downloaded by nuitka)
+- on macOS install XCode via Apple Store
 
 
 ## Screenshots

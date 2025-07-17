@@ -1,5 +1,6 @@
 import argparse
 import curses
+import importlib.util
 import shutil
 import signal
 import subprocess
@@ -9,6 +10,85 @@ from collections import deque
 
 import numpy as np
 import soundcard as sc
+from pyfftw.interfaces.numpy_fft import rfft
+
+
+def log_band_volumes(data, freqs, num_bands, band_edges, max_ref):
+    """Get logarythmic volume in dB for specified number of bands, from sound sample, with interpolation between bands"""
+    # get magnitude from fft
+    raw_magnitude = np.abs(rfft(data, threads=1))
+
+    # split into logarithmic bands
+    magnitude = np.zeros(num_bands)
+    for i in range(num_bands):
+        left = band_edges[i]
+        right = band_edges[i+1]
+        idx = np.where((freqs >= left) & (freqs < right))[0]
+
+        # interpolate between bands
+        if len(idx) == 0:
+            left_bin = np.searchsorted(freqs, left)
+            right_bin = np.searchsorted(freqs, right)
+            bins = []
+            if left_bin > 0:
+                bins.append(left_bin - 1)
+            if left_bin < len(freqs):
+                bins.append(left_bin)
+            if right_bin > 0 and right_bin != left_bin:
+                bins.append(right_bin - 1)
+            if right_bin < len(freqs) and right_bin != left_bin:
+                bins.append(right_bin)
+            bins = np.array(list(set(bins)))
+            weights = []
+            for b in bins:
+                center = freqs[b]
+                band_center = (left + right) / 2
+                d = abs(center - band_center) + 1e-6
+                weights.append(1/d)
+            weights = np.array(weights)
+            weights /= np.sum(weights)
+            magnitude[i] = np.sqrt(np.sum((raw_magnitude[bins]**2) * weights))   # weighted RMS
+        else:
+            magnitude[i] = np.sqrt(np.mean(raw_magnitude[idx]**2))   # RMS
+
+    # magnitude to negative dB
+    db = 20 * np.log10(magnitude / max_ref + 1e-12)    # add small value to avoid log(0)
+    return np.maximum(db, -90)
+
+
+def get_color(y, bar_height, use_color):
+    """Get color id by bar height"""
+    if not use_color:
+        return curses.color_pair(0)
+    relative = (bar_height - y) / bar_height
+    if relative < 0.5:
+        return curses.color_pair(1)   # green
+    if relative < 0.8:
+        return curses.color_pair(2)   # yellow
+    return curses.color_pair(3)   # red
+
+
+def draw_spectrum(spectrum_win, bar_heights, peak_heights, bar_height, bar_character, peak_character, peaks, color, box):
+    """Draw spectrum bars with peaks"""
+    for y in range(bar_height - box):
+        line = []
+        for bar in bar_heights:
+            if y >= bar_height - bar:
+                line.append(bar_character)
+            else:
+                line.append(" ")
+        if peaks:
+            for x, peak in enumerate(peak_heights):
+                if y == bar_height - peak:
+                    line[x] = peak_character
+        spectrum_win.insstr(y, 0, "".join(line), get_color(y, bar_height, color))
+        spectrum_win.refresh()
+
+
+# use cython if available
+if importlib.util.find_spec("spectrum_cython"):
+    from spectrum_cython import draw_spectrum, log_band_volumes
+
 
 pw_loopback = None
 
@@ -74,50 +154,6 @@ def connect_pipewire(output_node_name, target_node_name=None, only_get_name=Fals
     return "spectroterm"
 
 
-
-def log_band_volumes(data, freqs, num_bands, band_edges, max_ref):
-    """Get logarythmic volume in dB for specified number of bands, from sound sample, with interpolation between bands"""
-    # get magnitude from fft
-    raw_magnitude = np.abs(np.fft.rfft(data))
-
-    # split into logarithmic bands
-    magnitude = np.zeros(num_bands)
-    for i in range(num_bands):
-        left = band_edges[i]
-        right = band_edges[i+1]
-        idx = np.where((freqs >= left) & (freqs < right))[0]
-
-        # interpolate between bands
-        if len(idx) == 0:
-            left_bin = np.searchsorted(freqs, left)
-            right_bin = np.searchsorted(freqs, right)
-            bins = []
-            if left_bin > 0:
-                bins.append(left_bin - 1)
-            if left_bin < len(freqs):
-                bins.append(left_bin)
-            if right_bin > 0 and right_bin != left_bin:
-                bins.append(right_bin - 1)
-            if right_bin < len(freqs) and right_bin != left_bin:
-                bins.append(right_bin)
-            bins = np.array(list(set(bins)))
-            weights = []
-            for b in bins:
-                center = freqs[b]
-                band_center = (left + right) / 2
-                d = abs(center - band_center) + 1e-6
-                weights.append(1/d)
-            weights = np.array(weights)
-            weights /= np.sum(weights)
-            magnitude[i] = np.sqrt(np.sum((raw_magnitude[bins]**2) * weights))   # weighted RMS
-        else:
-            magnitude[i] = np.sqrt(np.mean(raw_magnitude[idx]**2))   # RMS
-
-    # magnitude to negative dB
-    db = 20 * np.log10(magnitude / max_ref + 1e-12)    # add small value to avoid log(0)
-    return np.maximum(db, -90)
-
-
 def db_to_height(db, min_db, max_db, bar_height):
     """Calculate height of bars from sound volume"""
     return np.clip(np.round(np.interp(db, (min_db, max_db), (0, bar_height))).astype(np.int32), 0, bar_height)
@@ -150,18 +186,6 @@ def draw_log_y_axis(screen, bar_height, min_db, max_db, have_box=True):
         if 0 <= pos < bar_height:
             screen.addstr(have_box + pos, have_box, label)
     screen.addstr(have_box, have_box + 1, "dB")
-
-
-def get_color(y, bar_height, use_color):
-    """Get color id by bar height"""
-    if not use_color:
-        return curses.color_pair(0)
-    relative = (bar_height - y) / bar_height
-    if relative < 0.5:
-        return curses.color_pair(1)   # green
-    if relative < 0.8:
-        return curses.color_pair(2)   # yellow
-    return curses.color_pair(3)   # red
 
 
 def draw_ui(screen, draw_box, draw_axes, min_freq, max_freq, min_db, max_db):
@@ -307,19 +331,7 @@ def main(screen, args):
 
                 # draw spectrum
                 try:
-                    for y in range(bar_height - box):
-                        line = []
-                        for bar in bar_heights:
-                            if y >= bar_height - bar:
-                                line.append(bar_character)
-                            else:
-                                line.append(" ")
-                        if peaks:
-                            for x, peak in enumerate(peak_heights):
-                                if y == bar_height - peak:
-                                    line[x] = peak_character
-                        spectrum_win.insstr(y, 0, "".join(line), get_color(y, bar_height, color))
-                        spectrum_win.refresh()
+                    draw_spectrum(spectrum_win, bar_heights, peak_heights, bar_height, bar_character, peak_character, peaks, color, box)
                 except curses.error:
                     h, w = screen.getmaxyx()
                     spectrum_win = draw_ui(screen, box, axes, min_freq, max_freq, min_db, max_db)
@@ -493,7 +505,7 @@ def argparser():
         "-v",
         "--version",
         action="version",
-        version="%(prog)s 0.3.1",
+        version="%(prog)s 0.4.0",
     )
     return parser.parse_args()
 
