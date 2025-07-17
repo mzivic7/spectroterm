@@ -97,6 +97,8 @@ jobs:
             else
               uv run build.py
             fi
+        env:
+            SDKROOT: ${{ env.SDKROOT }}
 
       - name: Make binaries executable
         if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'

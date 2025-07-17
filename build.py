@@ -91,6 +91,10 @@ def build_cython(clang):
         "-funroll-loops",
     ]
 
+    sdkroot = os.environ.get("SDKROOT", "")
+    if sdkroot:
+        extra_compile_args.append(f"-isysroot{sdkroot}")
+
     extensions = [
         Extension(
             "spectrum_cython",
