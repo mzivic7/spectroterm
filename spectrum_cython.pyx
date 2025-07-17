@@ -76,7 +76,7 @@ cpdef int get_color(int y, int bar_height, bint use_color):
 cpdef void draw_spectrum(
     object spectrum_win,
     np.ndarray[np.int32_t, ndim=1] bar_heights,
-    list peak_heights,
+    np.ndarray[np.int32_t, ndim=1] peak_heights,
     int bar_height,
     str bar_character,
     str peak_character,

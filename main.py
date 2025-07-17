@@ -505,7 +505,7 @@ def argparser():
         "-v",
         "--version",
         action="version",
-        version="%(prog)s 0.4.7",
+        version="%(prog)s 0.4.8",
     )
     return parser.parse_args()
 
