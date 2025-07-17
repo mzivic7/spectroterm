@@ -76,7 +76,7 @@ jobs:
           version=${GITHUB_REF#refs/tags/}
           extra="README.md LICENSE"
           cd dist
-          cp ../{README.md,LICENSE,commands.md,configuration.md} .
+          cp ../{README.md,LICENSE} .
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             tar -czf "spectroterm-$version-${{ matrix.platform }}.tar.gz" spectroterm $extra
           elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
