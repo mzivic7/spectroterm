@@ -93,8 +93,7 @@ def build_cython(clang):
 
     sdkroot = os.environ.get("SDKROOT", "")
     if sdkroot and sys.platform == "darwin":
-        os.environ["CC"] = "/opt/homebrew/opt/llvm/bin/clang"   # using homebrew clang
-        os.environ["CXX"] = "/opt/homebrew/opt/llvm/bin/clang++"
+        print("GOOD")
         extra_compile_args.append(f"-isysroot{sdkroot}")
 
     extensions = [
