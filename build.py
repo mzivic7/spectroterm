@@ -2,13 +2,9 @@ import argparse
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tomllib
-
-import numpy as np
-import pyfftw  # noqa
-from Cython.Build import cythonize
-from setuptools import Extension, setup
 
 
 def get_app_name():
@@ -78,66 +74,55 @@ def patch_soundcard():
 
 
 def build_cython(clang):
-    """Build cython modules"""
+    """Build cython extensions"""
     if clang:
         os.environ["CC"] = "clang"
         os.environ["CXX"] = "clang++"
 
-    extra_compile_args = [
-        "-O3",
-        "-flto",
-        "-ffast-math",
-        "-fomit-frame-pointer",
-        "-funroll-loops",
-    ]
-    extra_link_args = ["-flto"]
+    subprocess.run(["uv", "run", "python", "setup.py", "build_ext", "--inplace"], check=True)
 
-    if shutil.which("lld"):
-        extra_compile_args.append("-fuse-ld=lld")
-        extra_link_args.append("-fuse-ld=lld")
-
-    extensions = [
-        Extension(
-            "spectrum_cython",
-            ["spectrum_cython.pyx"],
-            extra_compile_args=extra_compile_args,
-            extra_link_args=extra_link_args,
-            include_dirs=[np.get_include()],
-        ),
-    ]
-
-    setup(
-        name="spectrum",
-        ext_modules=cythonize(extensions, language_level=3),
-        script_args=["build_ext", "--inplace"],
-    )
     os.remove("spectrum_cython.c")
     shutil.rmtree("build")
 
 
 def build_with_pyinstaller(onedir):
     """Build with pyinstaller"""
-    if onedir:
-        onedir = "--onedir"
-    else:
-        onedir = "--onefile"
-    hidden_imports = "--hidden-import pyfftw"
-    app_name = get_app_name()
+    pkgname = get_app_name()
+    mode = "--onedir" if onedir else "--onefile"
+    hidden_imports = ["--hidden-import=pyfftw"]
+    package_data = []
 
+    # platform-specific
     if sys.platform == "linux":
-        command = f'uv run python -m PyInstaller {onedir} {hidden_imports} --collect-data=emoji --noconfirm --clean --name {app_name} "main.py"'
-        os.system(command)
+        options = []
     elif sys.platform == "win32":
-        command = f'uv run python -m PyInstaller {onedir} {hidden_imports} --collect-data=emoji --noconfirm --console --clean --name {app_name} "main.py"'
-        os.system(command)
+        options = ["--console"]
     elif sys.platform == "darwin":
-        command = f'uv run python -m PyInstaller {onedir} {hidden_imports} --collect-data=emoji --noconfirm --console --clean --name {app_name} "main.py"'
-        os.system(command)
-    else:
-        sys.exit(f"This platform is not supported: {sys.platform}")
+        options = []
+
+
+    # prepare command and run it
+    cmd = [
+        "uv", "run", "python", "-m", "PyInstaller",
+        mode,
+        *hidden_imports,
+        *package_data,
+        *options,
+        "--noconfirm",
+        "--clean",
+        f"--name={pkgname}",
+        "main.py",
+    ]
+    cmd = [arg for arg in cmd if arg != ""]
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Build failed: {e}")
+        sys.exit(e.returncode)
+
     # cleanup
     try:
-        os.remove(f"{app_name}.spec")
+        os.remove(f"{pkgname}.spec")
         shutil.rmtree("build")
     except FileNotFoundError:
         pass
@@ -145,31 +130,56 @@ def build_with_pyinstaller(onedir):
 
 def build_with_nuitka(onedir, clang):
     """Build with nuitka"""
-    if onedir:
-        onedir = "--standalone"
-    else:
-        onedir = "--onefile"
+    pkgname = get_app_name()
+    mode = "--standalone" if onedir else "--onefile"
+    clang = "--clang" if clang else ""
+    python_flags = ["--python-flag=-OO"]
+    hidden_imports = ["--include-module=pyfftw"]
+    package_data = [
+        "--include-package-data=soundcard",
+    ]
 
-    if clang:
-        clang = "--clang"
-    else:
-        clang = ""
-    hidden_imports = "--include-module=pyfftw"
-    include_package_data = "--include-package-data=soundcard"
-    app_name = get_app_name()
-
+    # platform-specific
     if sys.platform == "linux":
-        command = f"uv run python -m nuitka {clang} {onedir} {hidden_imports} {include_package_data} --remove-output --output-dir=dist --output-filename={app_name} main.py"
-        os.system(command)
+        options = []
     elif sys.platform == "win32":
         patch_soundcard()
-        command = f"uv run python -m nuitka {clang} {onedir} {hidden_imports} {include_package_data} --remove-output --output-dir=dist --output-filename={app_name} --assume-yes-for-downloads main.py"
-        os.system(command)
+        options = ["--assume-yes-for-downloads"]
     elif sys.platform == "darwin":
-        command = f"uv run python -m nuitka {clang} {onedir} {hidden_imports} {include_package_data} --remove-output --output-dir=dist --output-filename={app_name} --macos-app-name={app_name} --macos-app-version={get_version_number()} main.py"
-        os.system(command)
-    else:
-        sys.exit(f"This platform is not supported: {sys.platform}")
+        options = [
+            f"--macos-app-name={get_app_name()}",
+            f"--macos-app-version={get_version_number()}",
+            '--macos-app-protected-resource="NSMicrophoneUsageDescription:Microphone access for recording voice message."',
+        ]
+
+    # prepare command and run it
+    cmd = [
+        "uv", "run", "python", "-m", "nuitka",
+        mode,
+        clang,
+        *python_flags,
+        *hidden_imports,
+        *package_data,
+        *options,
+        "--lto=yes",
+        "--remove-output",
+        "--output-dir=dist",
+        f"--output-filename={pkgname}",
+        "main.py",
+    ]
+    cmd = [arg for arg in cmd if arg != ""]
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Build failed: {e}")
+        sys.exit(e.returncode)
+
+    # cleanup
+    try:
+        os.remove(f"{pkgname}.spec")
+        shutil.rmtree("build")
+    except FileNotFoundError:
+        pass
 
 
 def parser():
@@ -204,11 +214,13 @@ def parser():
 
 if __name__ == "__main__":
     args = parser()
+    if sys.platform not in ("linux", "win32", "darwin"):
+        sys.exit(f"This platform is not supported: {sys.platform}")
     if not args.nocython:
         try:
             build_cython(args.clang)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Failed building cython extensions, error: {e}")
     if args.nuitka:
         build_with_nuitka(args.onedir, args.clang)
         sys.exit()

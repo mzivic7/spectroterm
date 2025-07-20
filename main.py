@@ -70,15 +70,16 @@ def get_color(y, bar_height, use_color):
 
 def draw_spectrum(spectrum_win, bar_heights, peak_heights, bar_height, bar_character, peak_character, peaks, color, box):
     """Draw spectrum bars with peaks"""
+    width = bar_heights.shape[0]
     for y in range(bar_height - box):
-        line = []
-        for bar in bar_heights:
+        line = [" "] * width
+        for i in range(width):
+            bar = bar_heights[i]
             if y >= bar_height - bar:
-                line.append(bar_character)
-            else:
-                line.append(" ")
+                line[i] = bar_character
         if peaks:
-            for x, peak in enumerate(peak_heights):
+            for x in range(width):
+                peak = peak_heights[x]
                 if y == bar_height - peak:
                     line[x] = peak_character
         spectrum_win.insstr(y, 0, "".join(line), get_color(y, bar_height, color))
@@ -249,7 +250,7 @@ def main(screen, args):
 
     prev_bar_heights = None
     prev_update_time = time.perf_counter()
-    peak_heights = []
+    peak_heights = np.array([], dtype="int32")
     numframes = int(sample_rate * sample_size)
     delay_frames = int(sample_rate * delay / 1000)
     freqs = np.fft.rfftfreq(numframes, 1 / sample_rate)
@@ -505,7 +506,7 @@ def argparser():
         "-v",
         "--version",
         action="version",
-        version="%(prog)s 0.4.8",
+        version="%(prog)s 0.5.0",
     )
     return parser.parse_args()
 
