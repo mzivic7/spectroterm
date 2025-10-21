@@ -14,9 +14,9 @@ def get_app_name():
             data = tomllib.load(f)
         if "project" in data and "version" in data["project"]:
             return str(data["project"]["name"])
-        print("App name not specified in pyproject.toml")
+        fprint("App name not specified in pyproject.toml")
         sys.exit()
-    print("pyproject.toml file not found")
+    fprint("pyproject.toml file not found")
     sys.exit()
 
 
@@ -27,31 +27,68 @@ def get_version_number():
             data = tomllib.load(f)
         if "project" in data and "version" in data["project"]:
             return str(data["project"]["version"])
-        print("Version not specified in pyproject.toml")
+        fprint("Version not specified in pyproject.toml")
         sys.exit()
-    print("pyproject.toml file not found")
+    fprint("pyproject.toml file not found")
     sys.exit()
+
+
+def supports_color():
+    """Return True if the running terminal supports ANSI colors."""
+    if sys.platform == "win32":
+        return (os.getenv("ANSICON") is not None or
+            os.getenv("WT_SESSION") is not None or
+            os.getenv("TERM_PROGRAM") == "vscode" or
+            os.getenv("TERM") in ("xterm", "xterm-color", "xterm-256color")
+        )
+    if not sys.stdout.isatty():
+        return False
+    return os.getenv("TERM", "") != "dumb"
+
+
+PKGNAME = get_app_name()
+PKGVER = get_version_number()
+USE_COLOR = supports_color()
+
+
+def fprint(text, color_code="\033[1;35m", prepend=f"[{PKGNAME.capitalize()} Build Script]: "):
+    """Print colored text prepended with text, default is light purple"""
+    if USE_COLOR:
+        print(f"{color_code}{prepend}{text}\033[0m")
+    else:
+        print(f"{prepend}{text}")
+
+
+def find_file_in_venv(lib_name, file_name):
+    """Search for file in specified library in current venv"""
+    if isinstance(file_name, list):
+        file_name = os.path.join(*file_name)
+    for root, dirs, files in os.walk(".venv"):
+        if lib_name in dirs:
+            lib_dir = os.path.join(root, lib_name)
+            path = os.path.join(lib_dir, file_name)
+            if os.path.isfile(path):
+                return path
+    else:
+        fprint(f"{lib_name}/{file_name} not found")
+        return
 
 
 def patch_soundcard():
     """
     Search for soundcard/mediafoundation.py in .venv
     Prepend "if _ole32: " to "_ole32.CoUninitialize()" line while respecting indentation
+    Search for soundcard/pulseaudio.py in .venv
+    replace assert with proper exception
     """
     if not os.path.exists(".venv"):
-        print(".venv dir not found")
+        fprint(".venv dir not found")
         return
 
-    for root, dirs, files in os.walk(".venv"):
-        if "soundcard" in dirs:
-            soundcard_dir = os.path.join(root, "soundcard")
-            path = os.path.join(soundcard_dir, "mediafoundation.py")
-            if os.path.isfile(path):
-                break
-    else:
-        print("Soundcard library not found")
+    # patch mediafoundation.py
+    path = find_file_in_venv("soundcard", "mediafoundation.py")
+    if not path:
         return
-
     with open(path, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
@@ -68,18 +105,79 @@ def patch_soundcard():
     if changed:
         with open(path, "w", encoding="utf-8") as f:
             f.writelines(lines)
-        print(f"Patched file: {path}")
+        fprint(f"Patched file: {path}")
     else:
-        print(f"Nothing to patch in file {path}")
+        fprint(f"Nothing to patch in file {path}")
+
+    # patch pulseaudio.py
+    path = find_file_in_venv("soundcard", "pulseaudio.py")
+    if not path:
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    pattern = re.compile(r"^(\s*)assert self\._pa_context_get_state")
+    changed = False
+    for num, line in enumerate(lines):
+        match = re.match(pattern, line)
+        if match:
+            indent = match.group(1)
+            lines[num] = f"{indent}if self._pa_context_get_state(self.context) != _pa.PA_CONTEXT_READY:\n"
+            lines.insert(num+1, f'{indent+"    "}raise RuntimeError("PulseAudio context not ready (no sound system?)")\n')
+            changed = True
+            break
+
+    if changed:
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        fprint(f"Patched file: {path}")
+    else:
+        fprint(f"Nothing to patch in file {path}")
 
 
-def build_cython(clang):
+def build_numpy_lite(clang):
+    """Build numpy without openblass to reduce final binary size"""
+    # check if numpy without blas is not already installed
+    cmd = [
+        "uv", "run", "python", "-c",
+        "import numpy; print(int(numpy.__config__.show_config('dicts')['Build Dependencies']['blas'].get('found', False)))",
+    ]
+    if int(subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()):
+        fprint("Building numpy lite (no openblas)")
+        if clang:
+            os.environ["CC"] = "clang"
+            os.environ["CXX"] = "clang++"
+        subprocess.run(["uv", "pip", "install", "pip"], check=True)   # because uv wont work with --config-settings as intended
+        try:
+            if sys.platform == "win32":
+                python_interpreter = r".venv\Scripts\python.exe"
+            else:
+                python_interpreter = ".venv/bin/python"
+            subprocess.run([python_interpreter, "-m", "pip", "uninstall", "--yes", "numpy"], check=True)
+            subprocess.run([
+                python_interpreter, "-m", "pip", "install", "--no-cache-dir", "--no-binary=:all:", "numpy",
+                "--config-settings=setup-args=-Dblas=None",
+                "--config-settings=setup-args=-Dlapack=None",
+            ], check=True)
+        except subprocess.CalledProcessError:   # fallback
+            fprint("Failed building numpy lite (no openblas), faling back to default numpy")
+            subprocess.run(["uv", "pip", "install", "numpy"], check=True)
+        subprocess.run(["uv", "pip", "uninstall", "pip"], check=True)
+    else:
+        fprint("Numpy lite (no openblas) is already built")
+
+
+def build_cython(clang, mingw):
     """Build cython extensions"""
+    fprint(f"Starting cython compilation with {"clang" if clang else "gcc"}{("mingw") if mingw else ""}")
+    cmd = ["uv", "run", "python", "setup.py", "build_ext", "--inplace"]
     if clang:
         os.environ["CC"] = "clang"
         os.environ["CXX"] = "clang++"
+    elif mingw and sys.platform == "win32":
+        cmd.append("--compiler=mingw32")   # covers mingw 32 and 64
 
-    subprocess.run(["uv", "run", "python", "setup.py", "build_ext", "--inplace"], check=True)
+    subprocess.run(cmd, check=True)
 
     os.remove("spectrum_cython.c")
     shutil.rmtree("build")
@@ -90,6 +188,7 @@ def build_with_pyinstaller(onedir):
     pkgname = get_app_name()
     mode = "--onedir" if onedir else "--onefile"
     hidden_imports = ["--hidden-import=pyfftw"]
+    exclude_imports = ["--exclude-module=cython"]
     package_data = []
 
     # platform-specific
@@ -106,6 +205,7 @@ def build_with_pyinstaller(onedir):
         "uv", "run", "python", "-m", "PyInstaller",
         mode,
         *hidden_imports,
+        *exclude_imports,
         *package_data,
         *options,
         "--noconfirm",
@@ -114,6 +214,7 @@ def build_with_pyinstaller(onedir):
         "main.py",
     ]
     cmd = [arg for arg in cmd if arg != ""]
+    fprint("Starting pyinstaller")
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
@@ -121,23 +222,35 @@ def build_with_pyinstaller(onedir):
         sys.exit(e.returncode)
 
     # cleanup
+    fprint("Cleaning up")
     try:
         os.remove(f"{pkgname}.spec")
         shutil.rmtree("build")
     except FileNotFoundError:
         pass
+    fprint(f"Finished building {pkgname}")
 
 
-def build_with_nuitka(onedir, clang):
+def build_with_nuitka(onedir, clang, mingw):
     """Build with nuitka"""
     pkgname = get_app_name()
+
+    build_numpy_lite(clang)
+
     mode = "--standalone" if onedir else "--onefile"
-    clang = "--clang" if clang else ""
+    compiler = ""
+    if clang:
+        compiler = "--clang"
+    elif mingw:
+        compiler = "--mingw64"
     python_flags = ["--python-flag=-OO"]
     hidden_imports = ["--include-module=pyfftw"]
-    package_data = [
-        "--include-package-data=soundcard",
-    ]
+    exclude_imports = ["--nofollow-import-to=cython"]
+    package_data = ["--include-package-data=soundcard"]
+
+    # options
+    if clang:
+        os.environ["CFLAGS"] = "-Wno-macro-redefined"
 
     # platform-specific
     if sys.platform == "linux":
@@ -156,9 +269,10 @@ def build_with_nuitka(onedir, clang):
     cmd = [
         "uv", "run", "python", "-m", "nuitka",
         mode,
-        clang,
+        compiler,
         *python_flags,
         *hidden_imports,
+        *exclude_imports,
         *package_data,
         *options,
         "--lto=yes",
@@ -168,6 +282,7 @@ def build_with_nuitka(onedir, clang):
         "main.py",
     ]
     cmd = [arg for arg in cmd if arg != ""]
+    fprint("Starting nuitka")
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
@@ -175,18 +290,20 @@ def build_with_nuitka(onedir, clang):
         sys.exit(e.returncode)
 
     # cleanup
+    fprint("Cleaning up")
     try:
         os.remove(f"{pkgname}.spec")
         shutil.rmtree("build")
     except FileNotFoundError:
         pass
+    fprint(f"Finished building {pkgname}")
 
 
 def parser():
     """Setup argument parser for CLI"""
     parser = argparse.ArgumentParser(
         prog="build.py",
-        description="build script for spectroterm",
+        description=f"build script for {PKGNAME}",
     )
     parser._positionals.title = "arguments"
     parser.add_argument(
@@ -209,6 +326,11 @@ def parser():
         action="store_true",
         help="build without compiling cython code",
     )
+    parser.add_argument(
+        "--mingw",
+        action="store_true",
+        help="use mingw instead msvc on windows, has no effect on Linux and macOS, or with --clang flag",
+    )
     return parser.parse_args()
 
 
@@ -218,11 +340,11 @@ if __name__ == "__main__":
         sys.exit(f"This platform is not supported: {sys.platform}")
     if not args.nocython:
         try:
-            build_cython(args.clang)
+            build_cython(args.clang, args.mingw)
         except Exception as e:
             print(f"Failed building cython extensions, error: {e}")
     if args.nuitka:
-        build_with_nuitka(args.onedir, args.clang)
+        build_with_nuitka(args.onedir, args.clang, args.mingw)
         sys.exit()
     else:
         build_with_pyinstaller(args.onedir)
