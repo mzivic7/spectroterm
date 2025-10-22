@@ -137,7 +137,7 @@ def patch_soundcard():
 
 def build_numpy_lite(clang):
     """Build numpy without openblass to reduce final binary size"""
-    if sys.pletform != "linux":
+    if sys.platform != "linux":
         fprint("Skipping numpy lite (no openblas) building on non-linux platforms")
         return
 
