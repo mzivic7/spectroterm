@@ -14,9 +14,9 @@ def get_app_name():
             data = tomllib.load(f)
         if "project" in data and "version" in data["project"]:
             return str(data["project"]["name"])
-        fprint("App name not specified in pyproject.toml")
+        print("App name not specified in pyproject.toml")
         sys.exit()
-    fprint("pyproject.toml file not found")
+    print("pyproject.toml file not found")
     sys.exit()
 
 
@@ -27,9 +27,9 @@ def get_version_number():
             data = tomllib.load(f)
         if "project" in data and "version" in data["project"]:
             return str(data["project"]["version"])
-        fprint("Version not specified in pyproject.toml")
+        print("Version not specified in pyproject.toml")
         sys.exit()
-    fprint("pyproject.toml file not found")
+    print("pyproject.toml file not found")
     sys.exit()
 
 
@@ -169,7 +169,7 @@ def build_numpy_lite(clang):
 
 def build_cython(clang, mingw):
     """Build cython extensions"""
-    fprint(f"Starting cython compilation with {"clang" if clang else "gcc"}{("mingw") if mingw else ""}")
+    fprint(f"Compiling cython code with {"clang" if clang else "gcc"}{("mingw") if mingw else ""}")
     cmd = ["uv", "run", "python", "setup.py", "build_ext", "--inplace"]
     if clang:
         os.environ["CC"] = "clang"
@@ -177,7 +177,21 @@ def build_cython(clang, mingw):
     elif mingw and sys.platform == "win32":
         cmd.append("--compiler=mingw32")   # covers mingw 32 and 64
 
-    subprocess.run(cmd, check=True)
+    # run process with control of stdout
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    for line in process.stdout:
+        line_clean = line.rstrip("\n")
+        if len(line_clean) < 100 and "Cythonizing" not in line_clean and "Compiling" not in line_clean and "creating" not in line_clean:
+            print(line_clean)
+    process.wait()
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, cmd)
 
     os.remove("spectrum_cython.c")
     shutil.rmtree("build")
