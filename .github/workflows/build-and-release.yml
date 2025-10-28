@@ -26,7 +26,7 @@ jobs:
           - os: macos-15
             platform: macos
             python-version: 3.13
-            nuitka: false
+            nuitka: true
             clang: true
     runs-on: ${{ matrix.os }}
 

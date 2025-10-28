@@ -280,7 +280,7 @@ def build_with_nuitka(onedir, clang, mingw):
         options = [
             f"--macos-app-name={get_app_name()}",
             f"--macos-app-version={get_version_number()}",
-            '--macos-app-protected-resource="NSMicrophoneUsageDescription:Microphone access for recording voice message."',
+            "--macos-app-protected-resource=NSMicrophoneUsageDescription:Microphone access for recording voice message.",
         ]
 
     # prepare command and run it
